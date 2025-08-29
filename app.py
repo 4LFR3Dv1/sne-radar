@@ -25,26 +25,49 @@ sistema_estado = {
         "total_ciclos": 0,
         "rupturas_detectadas": 0,
         "tempo_execucao": 0
+    },
+    "debug": {
+        "ultimo_erro": None,
+        "status_api": None
     }
 }
 
 def buscar_dados_binance_simples(symbol, interval, limit):
     """Busca dados da Binance API de forma simples"""
     try:
+        print(f"[DEBUG] Iniciando busca de dados para {symbol}")
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": symbol, "interval": interval, "limit": limit}
+        
+        print(f"[DEBUG] URL: {url}")
+        print(f"[DEBUG] Params: {params}")
+        
         response = requests.get(url, params=params, timeout=10)
+        print(f"[DEBUG] Status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            erro_msg = f"Erro HTTP {response.status_code}: {response.text}"
+            print(f"[ERRO] {erro_msg}")
+            sistema_estado["debug"]["ultimo_erro"] = erro_msg
+            return None
+        
         data = response.json()
+        print(f"[DEBUG] Dados recebidos: {len(data)} candles")
         
         if not data:
+            erro_msg = "Nenhum dado recebido da API"
+            print(f"[ERRO] {erro_msg}")
+            sistema_estado["debug"]["ultimo_erro"] = erro_msg
             return None
             
         # Pegar o último candle
         ultimo_candle = data[-1]
+        print(f"[DEBUG] Último candle: {ultimo_candle}")
+        
         timestamp = int(ultimo_candle[0]) / 1000  # Converter para segundos
         dt = datetime.fromtimestamp(timestamp)
         
-        return {
+        dados = {
             "timestamp": dt.strftime('%Y-%m-%d %H:%M:%S'),
             "open": float(ultimo_candle[1]),
             "high": float(ultimo_candle[2]),
@@ -54,8 +77,26 @@ def buscar_dados_binance_simples(symbol, interval, limit):
             "trades": int(ultimo_candle[8])
         }
         
+        print(f"[DEBUG] Dados processados: {dados}")
+        sistema_estado["debug"]["ultimo_erro"] = None
+        sistema_estado["debug"]["status_api"] = "OK"
+        
+        return dados
+        
+    except requests.exceptions.Timeout:
+        erro_msg = "Timeout na requisição para Binance"
+        print(f"[ERRO] {erro_msg}")
+        sistema_estado["debug"]["ultimo_erro"] = erro_msg
+        return None
+    except requests.exceptions.RequestException as e:
+        erro_msg = f"Erro de requisição: {str(e)}"
+        print(f"[ERRO] {erro_msg}")
+        sistema_estado["debug"]["ultimo_erro"] = erro_msg
+        return None
     except Exception as e:
-        print(f"[ERRO] Falha ao buscar dados: {e}")
+        erro_msg = f"Erro inesperado: {str(e)}"
+        print(f"[ERRO] {erro_msg}")
+        sistema_estado["debug"]["ultimo_erro"] = erro_msg
         return None
 
 def calcular_indicadores_simples(dados):
@@ -63,46 +104,59 @@ def calcular_indicadores_simples(dados):
     if not dados:
         return dados
         
-    # Simulação de indicadores técnicos
-    preco = dados["close"]
-    dados["ema8"] = preco * 0.999  # Simulação EMA8
-    dados["ema21"] = preco * 0.998  # Simulação EMA21
-    dados["sma200"] = preco * 0.997  # Simulação SMA200
-    dados["densidade"] = 1.0 / (abs(dados["ema8"] - dados["ema21"]) + 0.001)
-    dados["tendencia"] = "alta" if dados["ema8"] > dados["ema21"] else "baixa"
-    
-    return dados
+    try:
+        # Simulação de indicadores técnicos
+        preco = dados["close"]
+        dados["ema8"] = preco * 0.999  # Simulação EMA8
+        dados["ema21"] = preco * 0.998  # Simulação EMA21
+        dados["sma200"] = preco * 0.997  # Simulação SMA200
+        dados["densidade"] = 1.0 / (abs(dados["ema8"] - dados["ema21"]) + 0.001)
+        dados["tendencia"] = "alta" if dados["ema8"] > dados["ema21"] else "baixa"
+        
+        print(f"[DEBUG] Indicadores calculados: EMA8={dados['ema8']:.2f}, EMA21={dados['ema21']:.2f}")
+        return dados
+    except Exception as e:
+        print(f"[ERRO] Falha ao calcular indicadores: {e}")
+        return dados
 
 def detectar_ruptura_simples(dados):
     """Detecta rupturas de forma simplificada"""
     if not dados:
         return False
         
-    # Simulação de detecção de ruptura
-    volume_alto = dados["volume"] > 1000  # Volume alto
-    preco_mudanca = abs(dados["close"] - dados["open"]) > 50  # Mudança significativa
-    
-    if volume_alto and preco_mudanca:
-        ruptura_info = {
-            "preco": dados["close"],
-            "timestamp": dados["timestamp"],
-            "volume": dados["volume"],
-            "densidade": dados["densidade"],
-            "tipo": "volume_alto"
-        }
+    try:
+        # Simulação de detecção de ruptura
+        volume_alto = dados["volume"] > 1000  # Volume alto
+        preco_mudanca = abs(dados["close"] - dados["open"]) > 50  # Mudança significativa
         
-        if ruptura_info not in sistema_estado["rupturas_detectadas"]:
-            sistema_estado["rupturas_detectadas"].append(ruptura_info)
-            sistema_estado["alertas_enviados"] += 1
-            sistema_estado["estatisticas"]["rupturas_detectadas"] += 1
-            print(f"[ALERTA] Ruptura Detectada: {dados['close']:.2f} USDT - {dados['timestamp']}")
-            return True
-    
-    return False
+        print(f"[DEBUG] Verificando ruptura: volume={dados['volume']:.2f}, mudança={abs(dados['close'] - dados['open']):.2f}")
+        
+        if volume_alto and preco_mudanca:
+            ruptura_info = {
+                "preco": dados["close"],
+                "timestamp": dados["timestamp"],
+                "volume": dados["volume"],
+                "densidade": dados["densidade"],
+                "tipo": "volume_alto"
+            }
+            
+            if ruptura_info not in sistema_estado["rupturas_detectadas"]:
+                sistema_estado["rupturas_detectadas"].append(ruptura_info)
+                sistema_estado["alertas_enviados"] += 1
+                sistema_estado["estatisticas"]["rupturas_detectadas"] += 1
+                print(f"[ALERTA] Ruptura Detectada: {dados['close']:.2f} USDT - {dados['timestamp']}")
+                return True
+        
+        return False
+    except Exception as e:
+        print(f"[ERRO] Falha na detecção de ruptura: {e}")
+        return False
 
 def executar_ciclo_analise():
     """Executa um ciclo completo de análise"""
     try:
+        print(f"[INFO] Iniciando ciclo de análise - {datetime.now().strftime('%H:%M:%S')}")
+        
         # Busca dados
         dados = buscar_dados_binance_simples(symbol, interval, limit)
         
@@ -128,13 +182,17 @@ def executar_ciclo_analise():
         sistema_estado["ultima_atualizacao"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         sistema_estado["estatisticas"]["total_ciclos"] += 1
         
+        print(f"[DEBUG] Estado atualizado: {sistema_estado['dados_atuais']}")
+        
         # Detecção de rupturas
         detectar_ruptura_simples(dados)
         
-        print(f"[INFO] Ciclo executado: {datetime.now().strftime('%H:%M:%S')}")
+        print(f"[INFO] Ciclo executado com sucesso: {datetime.now().strftime('%H:%M:%S')}")
         
     except Exception as e:
-        print(f"[ERRO] Falha no ciclo de análise: {e}")
+        erro_msg = f"Falha no ciclo de análise: {str(e)}"
+        print(f"[ERRO] {erro_msg}")
+        sistema_estado["debug"]["ultimo_erro"] = erro_msg
 
 # Rotas Flask
 @app.route('/')
@@ -158,6 +216,11 @@ def api_dados():
 def api_rupturas():
     """API para histórico de rupturas"""
     return jsonify(sistema_estado["rupturas_detectadas"])
+
+@app.route('/api/debug')
+def api_debug():
+    """API para informações de debug"""
+    return jsonify(sistema_estado["debug"])
 
 @app.route('/api/iniciar', methods=['POST'])
 def api_iniciar():
