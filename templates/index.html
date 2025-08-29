@@ -5,12 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🚀 SNE Radar - Sistema Neural Estratégico</title>
     
-    <!-- Plotly.js -->
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    
-    <!-- Socket.IO -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
-    
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -133,6 +127,7 @@
             gap: 15px;
             justify-content: center;
             margin-bottom: 30px;
+            flex-wrap: wrap;
         }
 
         .btn {
@@ -177,32 +172,6 @@
         .btn-secondary:hover {
             background: linear-gradient(45deg, #555, #333);
             transform: translateY(-2px);
-        }
-
-        .chart-container {
-            background: rgba(26, 26, 26, 0.9);
-            border: 1px solid #333;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .chart-container h2 {
-            margin-bottom: 20px;
-            color: #00ff00;
-            text-align: center;
-        }
-
-        #grafico {
-            width: 100%;
-            height: 600px;
-            background: #1a1a1a;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #666;
         }
 
         .rupturas-container {
@@ -342,6 +311,25 @@
             font-size: 0.9em;
             color: #888;
         }
+
+        .info-box {
+            background: rgba(0, 255, 0, 0.05);
+            border: 1px solid #00ff00;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .info-box h3 {
+            color: #00ff00;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #ccc;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -356,6 +344,13 @@
             </div>
         </div>
 
+        <!-- Info Box -->
+        <div class="info-box">
+            <h3><i class="fas fa-info-circle"></i> Versão Simplificada</h3>
+            <p>Esta é uma versão básica do SNE Radar funcionando no Render. 
+            Os dados são atualizados manualmente. Clique em "Executar Ciclo" para buscar novos dados da Binance.</p>
+        </div>
+
         <!-- Alertas -->
         <div id="alerts"></div>
 
@@ -367,8 +362,11 @@
             <button class="btn btn-danger" onclick="pararRadar()">
                 <i class="fas fa-stop"></i> Parar Radar
             </button>
+            <button class="btn btn-secondary" onclick="executarCiclo()">
+                <i class="fas fa-sync-alt"></i> Executar Ciclo
+            </button>
             <button class="btn btn-secondary" onclick="atualizarDados()">
-                <i class="fas fa-sync-alt"></i> Atualizar
+                <i class="fas fa-refresh"></i> Atualizar Dados
             </button>
         </div>
 
@@ -429,17 +427,6 @@
             </div>
         </div>
 
-        <!-- Gráfico -->
-        <div class="chart-container">
-            <h2><i class="fas fa-chart-candlestick"></i> Gráfico em Tempo Real</h2>
-            <div id="grafico">
-                <div class="loading">
-                    <i class="fas fa-spinner"></i>
-                    Carregando gráfico...
-                </div>
-            </div>
-        </div>
-
         <!-- Rupturas Detectadas -->
         <div class="rupturas-container">
             <h2><i class="fas fa-exclamation-triangle"></i> Rupturas Detectadas</h2>
@@ -453,9 +440,8 @@
     </div>
 
     <script>
-        // Conectar ao WebSocket
-        const socket = io();
         let sistemaAtivo = false;
+        let ultimaAtualizacao = null;
 
         // Elementos DOM
         const statusIndicator = document.getElementById('status-indicator');
@@ -468,6 +454,7 @@
                 .then(response => response.json())
                 .then(data => {
                     mostrarAlerta(data.status, 'success');
+                    atualizarDados();
                 })
                 .catch(error => {
                     mostrarAlerta('Erro ao iniciar radar: ' + error, 'danger');
@@ -485,9 +472,40 @@
                 });
         }
 
+        function executarCiclo() {
+            fetch('/api/executar-ciclo', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    mostrarAlerta(data.status, 'success');
+                    atualizarDados();
+                })
+                .catch(error => {
+                    mostrarAlerta('Erro ao executar ciclo: ' + error, 'danger');
+                });
+        }
+
         function atualizarDados() {
-            socket.emit('solicitar_dados');
-            mostrarAlerta('Dados atualizados!', 'success');
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    atualizarDadosTela(data.dados_atuais);
+                    atualizarEstatisticas(data.estatisticas);
+                    sistemaAtivo = data.ativo;
+                    ultimaAtualizacao = data.ultima_atualizacao;
+                    
+                    // Atualizar status de conexão
+                    statusIndicator.className = 'status-indicator status-online';
+                    statusText.textContent = 'Conectado';
+                    
+                    // Carregar rupturas
+                    carregarRupturas(data.rupturas_detectadas);
+                })
+                .catch(error => {
+                    console.error('Erro ao atualizar dados:', error);
+                    statusIndicator.className = 'status-indicator status-offline';
+                    statusText.textContent = 'Erro de conexão';
+                    mostrarAlerta('Erro ao conectar com o servidor', 'danger');
+                });
         }
 
         function mostrarAlerta(mensagem, tipo) {
@@ -521,118 +539,50 @@
             }
         }
 
-        function atualizarGrafico(graficoHtml) {
-            if (graficoHtml) {
-                document.getElementById('grafico').innerHTML = graficoHtml;
-            }
-        }
-
-        function adicionarRuptura(ruptura) {
+        function carregarRupturas(rupturas) {
             const rupturasList = document.getElementById('rupturas-list');
             
-            // Remover loading se existir
-            const loading = rupturasList.querySelector('.loading');
-            if (loading) {
-                loading.remove();
+            if (!rupturas || rupturas.length === 0) {
+                rupturasList.innerHTML = `
+                    <div class="loading">
+                        <i class="fas fa-info-circle"></i>
+                        Nenhuma ruptura detectada ainda
+                    </div>
+                `;
+                return;
             }
             
-            const rupturaElement = document.createElement('div');
-            rupturaElement.className = 'ruptura-item';
-            rupturaElement.innerHTML = `
-                <div class="ruptura-header">
-                    <div class="ruptura-preco">$${ruptura.preco.toFixed(2)}</div>
-                    <div class="ruptura-timestamp">${ruptura.timestamp}</div>
-                </div>
-                <div class="ruptura-details">
-                    <div><strong>Volume:</strong> ${ruptura.volume.toFixed(2)}</div>
-                    <div><strong>Densidade:</strong> ${ruptura.densidade.toFixed(4)}</div>
-                    <div><strong>Tipo:</strong> ${ruptura.tipo}</div>
-                </div>
-            `;
+            rupturasList.innerHTML = '';
             
-            rupturasList.insertBefore(rupturaElement, rupturasList.firstChild);
-            
-            // Limitar a 10 rupturas
-            const rupturas = rupturasList.querySelectorAll('.ruptura-item');
-            if (rupturas.length > 10) {
-                rupturas[rupturas.length - 1].remove();
-            }
-        }
-
-        // Eventos WebSocket
-        socket.on('connect', function() {
-            statusIndicator.className = 'status-indicator status-online';
-            statusText.textContent = 'Conectado';
-            mostrarAlerta('Conectado ao SNE Radar!', 'success');
-        });
-
-        socket.on('disconnect', function() {
-            statusIndicator.className = 'status-indicator status-offline';
-            statusText.textContent = 'Desconectado';
-            mostrarAlerta('Desconectado do servidor', 'danger');
-        });
-
-        socket.on('conectado', function(data) {
-            mostrarAlerta(data.mensagem, 'success');
-        });
-
-        socket.on('dados_atualizados', function(dados) {
-            atualizarDadosTela(dados);
-        });
-
-        socket.on('grafico_atualizado', function(data) {
-            atualizarGrafico(data.grafico);
-        });
-
-        socket.on('ruptura_detectada', function(ruptura) {
-            adicionarRuptura(ruptura);
-            mostrarAlerta(`🚨 Ruptura detectada: $${ruptura.preco.toFixed(2)}`, 'danger');
-        });
-
-        socket.on('sistema_atualizado', function(data) {
-            sistemaAtivo = data.status === 'iniciado';
-            mostrarAlerta(`Sistema ${data.status}`, sistemaAtivo ? 'success' : 'warning');
-        });
-
-        // Carregar dados iniciais
-        function carregarDadosIniciais() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    atualizarDadosTela(data.dados_atuais);
-                    atualizarEstatisticas(data.estatisticas);
-                    sistemaAtivo = data.ativo;
-                    
-                    if (data.grafico_html) {
-                        atualizarGrafico(data.grafico_html);
-                    }
-                    
-                    // Carregar rupturas
-                    if (data.rupturas_detectadas && data.rupturas_detectadas.length > 0) {
-                        const rupturasList = document.getElementById('rupturas-list');
-                        rupturasList.innerHTML = '';
-                        
-                        data.rupturas_detectadas.slice(0, 10).forEach(ruptura => {
-                            adicionarRuptura(ruptura);
-                        });
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro ao carregar dados iniciais:', error);
-                });
+            rupturas.slice(0, 10).forEach(ruptura => {
+                const rupturaElement = document.createElement('div');
+                rupturaElement.className = 'ruptura-item';
+                rupturaElement.innerHTML = `
+                    <div class="ruptura-header">
+                        <div class="ruptura-preco">$${ruptura.preco.toFixed(2)}</div>
+                        <div class="ruptura-timestamp">${ruptura.timestamp}</div>
+                    </div>
+                    <div class="ruptura-details">
+                        <div><strong>Volume:</strong> ${ruptura.volume.toFixed(2)}</div>
+                        <div><strong>Densidade:</strong> ${ruptura.densidade.toFixed(4)}</div>
+                        <div><strong>Tipo:</strong> ${ruptura.tipo}</div>
+                    </div>
+                `;
+                
+                rupturasList.appendChild(rupturaElement);
+            });
         }
 
         // Carregar dados quando a página carregar
         document.addEventListener('DOMContentLoaded', function() {
-            carregarDadosIniciais();
+            atualizarDados();
+            mostrarAlerta('SNE Radar carregado com sucesso!', 'success');
             
-            // Atualizar estatísticas a cada 30 segundos
+            // Atualizar dados a cada 30 segundos se o sistema estiver ativo
             setInterval(() => {
-                fetch('/api/status')
-                    .then(response => response.json())
-                    .then(data => {
-                        atualizarEstatisticas(data.estatisticas);
-                    });
+                if (sistemaAtivo) {
+                    atualizarDados();
+                }
             }, 30000);
         });
     </script>
