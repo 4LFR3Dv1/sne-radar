@@ -8,7 +8,6 @@ import matplotlib
 matplotlib.use('Agg')  # Para renderizar sem interface gráfica
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from mplfinance.original_flavor import candlestick_ohlc
 import pytz
 import io
 import base64
@@ -71,6 +70,38 @@ def buscar_dados_binance(symbol, interval, limit):
         print(f"[ERRO] Falha ao buscar dados: {e}")
         return pd.DataFrame()
 
+def plotar_candlestick(ax, df):
+    """Plota candlesticks manualmente"""
+    try:
+        # Preparar dados
+        df["timestamp"] = mdates.date2num(df.index.to_pydatetime())
+        
+        # Plotar candlesticks
+        for i, (idx, row) in enumerate(df.iterrows()):
+            timestamp = row["timestamp"]
+            open_price = row["open"]
+            close_price = row["close"]
+            high_price = row["high"]
+            low_price = row["low"]
+            
+            # Cor do candle
+            color = 'lime' if close_price >= open_price else 'red'
+            
+            # Corpo do candle
+            body_height = abs(close_price - open_price)
+            body_bottom = min(open_price, close_price)
+            
+            # Plotar corpo
+            ax.bar(timestamp, body_height, bottom=body_bottom, 
+                   width=0.0008, color=color, alpha=0.8)
+            
+            # Plotar sombra
+            ax.plot([timestamp, timestamp], [low_price, high_price], 
+                   color=color, linewidth=1)
+            
+    except Exception as e:
+        print(f"[ERRO] Falha ao plotar candlesticks: {e}")
+
 def gerar_grafico(df):
     """Gera gráfico candlestick com indicadores"""
     try:
@@ -83,14 +114,11 @@ def gerar_grafico(df):
         fig.patch.set_facecolor('black')
         ax.set_facecolor('black')
         
-        # Preparar dados para candlestick
-        df["timestamp"] = mdates.date2num(df.index.to_pydatetime())
-        ohlc = df[["timestamp", "open", "high", "low", "close"]].values
-        
         # Plotar candlesticks
-        candlestick_ohlc(ax, ohlc, width=0.0008 * len(df), colorup='lime', colordown='red')
+        plotar_candlestick(ax, df)
         
         # Plotar médias móveis
+        df["timestamp"] = mdates.date2num(df.index.to_pydatetime())
         ax.plot(df["timestamp"], df["EMA8"], color="white", linestyle="--", linewidth=1, label="EMA 8")
         ax.plot(df["timestamp"], df["EMA21"], color="orange", linestyle="--", linewidth=1, label="EMA 21")
         ax.plot(df["timestamp"], df["SMA200"], color="magenta", linewidth=1, label="SMA 200")
@@ -291,6 +319,8 @@ def home():
                     .then(data => {
                         if (data.grafico) {
                             document.getElementById('grafico-img').src = 'data:image/png;base64,' + data.grafico;
+                            document.getElementById('grafico-img').style.display = 'block';
+                            document.getElementById('grafico-loading').style.display = 'none';
                         }
                     });
             }
