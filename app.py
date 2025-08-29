@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import random
 from datetime import datetime
 import requests
 from flask import Flask, render_template, jsonify, request
@@ -28,9 +29,43 @@ sistema_estado = {
     },
     "debug": {
         "ultimo_erro": None,
-        "status_api": None
+        "status_api": None,
+        "modo": "simulado"
     }
 }
+
+def gerar_dados_simulados():
+    """Gera dados simulados do Bitcoin quando a API não está disponível"""
+    try:
+        # Preço base do Bitcoin (simulado)
+        preco_base = 65000 + random.uniform(-2000, 2000)
+        
+        # Variação de preço
+        variacao = random.uniform(-500, 500)
+        preco_atual = preco_base + variacao
+        
+        # Dados simulados
+        dados = {
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "open": preco_base,
+            "high": max(preco_base, preco_atual) + random.uniform(0, 200),
+            "low": min(preco_base, preco_atual) - random.uniform(0, 200),
+            "close": preco_atual,
+            "volume": random.uniform(1000, 5000),
+            "trades": random.randint(100, 1000)
+        }
+        
+        print(f"[DEBUG] Dados simulados gerados: {dados}")
+        sistema_estado["debug"]["status_api"] = "SIMULADO"
+        sistema_estado["debug"]["modo"] = "simulado"
+        
+        return dados
+        
+    except Exception as e:
+        erro_msg = f"Erro ao gerar dados simulados: {str(e)}"
+        print(f"[ERRO] {erro_msg}")
+        sistema_estado["debug"]["ultimo_erro"] = erro_msg
+        return None
 
 def buscar_dados_binance_simples(symbol, interval, limit):
     """Busca dados da Binance API de forma simples"""
@@ -49,6 +84,12 @@ def buscar_dados_binance_simples(symbol, interval, limit):
             erro_msg = f"Erro HTTP {response.status_code}: {response.text}"
             print(f"[ERRO] {erro_msg}")
             sistema_estado["debug"]["ultimo_erro"] = erro_msg
+            
+            # Se for erro 451 (restrição geográfica), usar dados simulados
+            if response.status_code == 451:
+                print("[INFO] Usando dados simulados devido a restrição geográfica")
+                return gerar_dados_simulados()
+            
             return None
         
         data = response.json()
@@ -80,6 +121,7 @@ def buscar_dados_binance_simples(symbol, interval, limit):
         print(f"[DEBUG] Dados processados: {dados}")
         sistema_estado["debug"]["ultimo_erro"] = None
         sistema_estado["debug"]["status_api"] = "OK"
+        sistema_estado["debug"]["modo"] = "real"
         
         return dados
         
@@ -87,17 +129,20 @@ def buscar_dados_binance_simples(symbol, interval, limit):
         erro_msg = "Timeout na requisição para Binance"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        return None
+        print("[INFO] Usando dados simulados devido a timeout")
+        return gerar_dados_simulados()
     except requests.exceptions.RequestException as e:
         erro_msg = f"Erro de requisição: {str(e)}"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        return None
+        print("[INFO] Usando dados simulados devido a erro de requisição")
+        return gerar_dados_simulados()
     except Exception as e:
         erro_msg = f"Erro inesperado: {str(e)}"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        return None
+        print("[INFO] Usando dados simulados devido a erro inesperado")
+        return gerar_dados_simulados()
 
 def calcular_indicadores_simples(dados):
     """Calcula indicadores básicos sem pandas"""

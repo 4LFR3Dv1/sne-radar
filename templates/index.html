@@ -265,6 +265,12 @@
             color: #ff4444;
         }
 
+        .alert-info {
+            background: rgba(0, 150, 255, 0.1);
+            border-color: #0096ff;
+            color: #0096ff;
+        }
+
         @media (max-width: 768px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -330,6 +336,27 @@
             color: #ccc;
             line-height: 1.6;
         }
+
+        .mode-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .mode-real {
+            background: rgba(0, 255, 0, 0.2);
+            color: #00ff00;
+            border: 1px solid #00ff00;
+        }
+
+        .mode-simulado {
+            background: rgba(255, 165, 0, 0.2);
+            color: #ffa500;
+            border: 1px solid #ffa500;
+        }
     </style>
 </head>
 <body>
@@ -341,14 +368,14 @@
             <div>
                 <span class="status-indicator" id="status-indicator"></span>
                 <span id="status-text">Conectando...</span>
+                <span class="mode-indicator" id="mode-indicator" style="display: none;"></span>
             </div>
         </div>
 
         <!-- Info Box -->
         <div class="info-box">
-            <h3><i class="fas fa-info-circle"></i> Versão Simplificada</h3>
-            <p>Esta é uma versão básica do SNE Radar funcionando no Render. 
-            Os dados são atualizados manualmente. Clique em "Executar Ciclo" para buscar novos dados da Binance.</p>
+            <h3><i class="fas fa-info-circle"></i> Status do Sistema</h3>
+            <p id="info-text">Carregando informações do sistema...</p>
         </div>
 
         <!-- Alertas -->
@@ -442,11 +469,14 @@
     <script>
         let sistemaAtivo = false;
         let ultimaAtualizacao = null;
+        let modoAtual = "simulado";
 
         // Elementos DOM
         const statusIndicator = document.getElementById('status-indicator');
         const statusText = document.getElementById('status-text');
+        const modeIndicator = document.getElementById('mode-indicator');
         const alertsContainer = document.getElementById('alerts');
+        const infoText = document.getElementById('info-text');
 
         // Funções de controle
         function iniciarRadar() {
@@ -493,6 +523,17 @@
                     sistemaAtivo = data.ativo;
                     ultimaAtualizacao = data.ultima_atualizacao;
                     
+                    // Atualizar modo (real/simulado)
+                    if (data.debug && data.debug.modo) {
+                        modoAtual = data.debug.modo;
+                        atualizarModoIndicador(modoAtual);
+                    }
+                    
+                    // Atualizar informações de debug
+                    if (data.debug) {
+                        atualizarInfoDebug(data.debug);
+                    }
+                    
                     // Atualizar status de conexão
                     statusIndicator.className = 'status-indicator status-online';
                     statusText.textContent = 'Conectado';
@@ -506,6 +547,29 @@
                     statusText.textContent = 'Erro de conexão';
                     mostrarAlerta('Erro ao conectar com o servidor', 'danger');
                 });
+        }
+
+        function atualizarModoIndicador(modo) {
+            modeIndicator.style.display = 'inline-block';
+            modeIndicator.className = `mode-indicator mode-${modo}`;
+            modeIndicator.textContent = modo === 'real' ? 'DADOS REAIS' : 'DADOS SIMULADOS';
+        }
+
+        function atualizarInfoDebug(debug) {
+            let info = '';
+            
+            if (debug.modo === 'simulado') {
+                info = 'Sistema funcionando com dados simulados devido a restrições geográficas da Binance. Os dados são gerados para demonstração.';
+                mostrarAlerta('Usando dados simulados - Binance não disponível nesta região', 'info');
+            } else {
+                info = 'Sistema conectado à API da Binance. Dados em tempo real.';
+            }
+            
+            if (debug.ultimo_erro) {
+                info += ` Último erro: ${debug.ultimo_erro}`;
+            }
+            
+            infoText.textContent = info;
         }
 
         function mostrarAlerta(mensagem, tipo) {
