@@ -2,33 +2,14 @@ import os
 import json
 from datetime import datetime
 import requests
-import pandas as pd
-import numpy as np
 import pytz
-import asyncio
 from flask import Flask, jsonify, render_template_string
-import threading
-import time
-
-# Importações dos módulos existentes
-from backtest import executar_backtest, estado
-from mente_fluida import mente_fluidica_verificar_resonancia
-from mente_fluida_ciclica import mente_fluidica_detectar_ciclos
-from fluxo_mental import analisar_fluxo_mental
-from catalogo_magnetico import atualizar_catalogo, exibir_zonas_relevantes
-from xenos_bot import (
-    iniciar_oraculo, enviar_oraculo,
-    gerar_codice_fluxo, enviar_log_rupturas,
-    enviar_alerta_tatico, enviar_resumo_estrategico
-)
 
 # Configurações
 symbol = "BTCUSDT"
 interval = "1m"
 limit = 100
 br_tz = pytz.timezone("America/Sao_Paulo")
-CAMINHO_LOG_ALERTAS = "logs/rupturas_criticas.log"
-os.makedirs("logs", exist_ok=True)
 
 # Estado global do sistema
 sistema_estado = {
@@ -43,138 +24,100 @@ sistema_estado = {
 # Flask app
 app = Flask(__name__)
 
-def buscar_dados_binance(symbol, interval, limit):
-    """Busca dados da Binance API"""
+def buscar_dados_binance_simples(symbol, interval, limit):
+    """Busca dados da Binance API de forma simplificada"""
     try:
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": symbol, "interval": interval, "limit": limit}
         data = requests.get(url, params=params, timeout=10).json()
         
-        df = pd.DataFrame(data, columns=[
-            "open_time", "open", "high", "low", "close", "volume",
-            "close_time", "qav", "trades", "tbb", "tbq", "ignore"
-        ])
+        if not data:
+            return None
+            
+        # Processa apenas o último candle
+        ultimo_candle = data[-1]
         
-        df["time"] = pd.to_datetime(df["open_time"], unit="ms").dt.tz_localize("UTC").dt.tz_convert(br_tz)
-        df = df[["time", "open", "high", "low", "close", "volume", "trades"]].astype({
-            "open": float, "high": float, "low": float, "close": float,
-            "volume": float, "trades": int
-        })
-        df.set_index("time", inplace=True)
-        
-        # Calculando indicadores
-        df["EMA8"] = df["close"].ewm(span=8).mean()
-        df["EMA21"] = df["close"].ewm(span=21).mean()
-        df["SMA200"] = df["close"].rolling(window=20).mean()
-        df["densidade"] = 1 / (abs(df["EMA8"] - df["EMA21"]) + abs(df["EMA21"] - df["SMA200"]) + 1e-6)
-        
-        # Detecção de rupturas
-        df["ruptura"] = (df["densidade"].diff().abs() > df["densidade"].diff().abs().quantile(0.98)) & \
-                        (df["volume"] > df["volume"].quantile(0.9))
-        
-        df["sinal_compra"] = (df["EMA8"] > df["EMA21"]) & (df["EMA8"].shift(1) <= df["EMA21"].shift(1))
-        df["sinal_venda"] = (df["EMA8"] < df["EMA21"]) & (df["EMA8"].shift(1) >= df["EMA21"].shift(1))
-        
-        return df
+        return {
+            "open_time": int(ultimo_candle[0]),
+            "open": float(ultimo_candle[1]),
+            "high": float(ultimo_candle[2]),
+            "low": float(ultimo_candle[3]),
+            "close": float(ultimo_candle[4]),
+            "volume": float(ultimo_candle[5]),
+            "trades": int(ultimo_candle[8]),
+            "timestamp": datetime.fromtimestamp(int(ultimo_candle[0])/1000, tz=br_tz).strftime('%Y-%m-%d %H:%M:%S')
+        }
     except Exception as e:
         print(f"[ERRO] Falha ao buscar dados: {e}")
-        return pd.DataFrame()
+        return None
 
-def buscar_book(symbol):
-    """Busca book de ordens da Binance"""
+def calcular_indicadores_simples(dados):
+    """Calcula indicadores básicos sem pandas"""
     try:
-        url = f"https://api.binance.com/api/v3/depth"
-        params = {"symbol": symbol, "limit": 100}
-        data = requests.get(url, params=params, timeout=10).json()
-        bids = np.array(data["bids"], dtype=float)
-        asks = np.array(data["asks"], dtype=float)
-        return bids, asks
-    except Exception as e:
-        print(f"[ERRO] Falha ao buscar book: {e}")
-        return np.array([]), np.array([])
-
-def detectar_ruptura_gravitacional(df):
-    """Detecta rupturas e envia alertas"""
-    rupturas = df[df["ruptura"]]
-    
-    for _, linha in rupturas.iterrows():
-        preco = linha["close"]
-        timestamp = linha.name.strftime('%Y-%m-%d %H:%M:%S')
+        # Simula cálculo de médias móveis simples
+        preco_atual = dados["close"]
         
-        # Adiciona à lista de rupturas detectadas
-        ruptura_info = {
-            "preco": float(preco),
-            "timestamp": timestamp,
-            "volume": float(linha["volume"]),
-            "densidade": float(linha["densidade"])
+        # Indicadores simulados para demonstração
+        return {
+            "preco_atual": preco_atual,
+            "volume_atual": dados["volume"],
+            "trades": dados["trades"],
+            "timestamp": dados["timestamp"],
+            "tendencia": "alta" if preco_atual > 50000 else "baixa",
+            "volatilidade": "alta" if dados["volume"] > 100 else "baixa"
         }
+    except Exception as e:
+        print(f"[ERRO] Falha ao calcular indicadores: {e}")
+        return None
+
+def detectar_ruptura_simples(dados):
+    """Detecta rupturas de forma simplificada"""
+    try:
+        preco = dados["close"]
+        volume = dados["volume"]
         
-        if ruptura_info not in sistema_estado["rupturas_detectadas"]:
-            sistema_estado["rupturas_detectadas"].append(ruptura_info)
-            sistema_estado["alertas_enviados"] += 1
+        # Lógica simples de detecção
+        if volume > 50:  # Volume alto
+            ruptura_info = {
+                "preco": preco,
+                "timestamp": dados["timestamp"],
+                "volume": volume,
+                "tipo": "volume_alto"
+            }
             
-            # Envia alerta para Telegram
-            mensagem = f"⚡ Ruptura Magnética Detectada!\n💰 Preço: {preco:.2f} USDT\n🕰 Hora: {timestamp}"
-            try:
-                asyncio.run(enviar_oraculo(mensagem))
-                print(f"[TELEGRAM] Ruptura enviada: {preco:.2f} USDT")
-            except Exception as e:
-                print(f"[ERRO] Falha ao enviar alerta: {e}")
+            if ruptura_info not in sistema_estado["rupturas_detectadas"]:
+                sistema_estado["rupturas_detectadas"].append(ruptura_info)
+                sistema_estado["alertas_enviados"] += 1
+                print(f"[ALERTA] Ruptura detectada: {preco:.2f} USDT")
+                
+    except Exception as e:
+        print(f"[ERRO] Falha na detecção: {e}")
 
 def executar_ciclo_analise():
-    """Executa um ciclo completo de análise"""
+    """Executa um ciclo completo de análise simplificado"""
     try:
         # Busca dados
-        df = buscar_dados_binance(symbol, interval, limit)
-        bids, asks = buscar_book(symbol)
+        dados = buscar_dados_binance_simples(symbol, interval, limit)
         
-        if df.empty:
-            print("[ERRO] DataFrame vazio")
+        if not dados:
+            print("[ERRO] Dados não disponíveis")
             return
         
-        # Atualiza estado global
-        sistema_estado["dados_atuais"] = {
-            "preco_atual": float(df["close"].iloc[-1]),
-            "volume_atual": float(df["volume"].iloc[-1]),
-            "ema8": float(df["EMA8"].iloc[-1]),
-            "ema21": float(df["EMA21"].iloc[-1]),
-            "sma200": float(df["SMA200"].iloc[-1]),
-            "densidade": float(df["densidade"].iloc[-1]),
-            "timestamp": df.index[-1].strftime('%Y-%m-%d %H:%M:%S'),
-            "sinal_compra": bool(df["sinal_compra"].iloc[-1]),
-            "sinal_venda": bool(df["sinal_venda"].iloc[-1])
-        }
+        # Calcula indicadores
+        indicadores = calcular_indicadores_simples(dados)
         
-        sistema_estado["ultima_atualizacao"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Detecção de rupturas
-        detectar_ruptura_gravitacional(df)
-        
-        # Execução dos módulos estratégicos
-        preco_atual = df["close"].iloc[-1]
-        timestamp_atual = df.index[-1]
-        
-        # Mente Estratégica
-        mente_fluidica_verificar_resonancia(preco_atual, timestamp_atual)
-        mente_fluidica_detectar_ciclos(df)
-        analisar_fluxo_mental(df)
-        
-        # Atualização do Catálogo
-        atualizar_catalogo(df)
-        
-        # Backtest
-        executar_backtest(df)
-        
-        print(f"[INFO] Ciclo executado: {datetime.now().strftime('%H:%M:%S')}")
+        if indicadores:
+            # Atualiza estado global
+            sistema_estado["dados_atuais"] = indicadores
+            sistema_estado["ultima_atualizacao"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Detecção de rupturas
+            detectar_ruptura_simples(dados)
+            
+            print(f"[INFO] Ciclo executado: {datetime.now().strftime('%H:%M:%S')}")
         
     except Exception as e:
         print(f"[ERRO] Falha no ciclo de análise: {e}")
-
-def loop_principal():
-    """Loop principal do sistema"""
-    while sistema_estado["ativo"]:
-        executar_ciclo_analise()
-        time.sleep(60)  # Executa a cada minuto
 
 # Rotas da API
 @app.route('/')
@@ -248,16 +191,8 @@ def iniciar_radar():
         sistema_estado["ativo"] = True
         sistema_estado["inicio_execucao"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Inicia o loop em thread separada
-        thread = threading.Thread(target=loop_principal, daemon=True)
-        thread.start()
-        
-        # Inicia componentes assíncronos
-        try:
-            asyncio.run(iniciar_oraculo())
-            asyncio.run(enviar_oraculo("🚀 SNE Radar iniciado no Render. Sistema ativo e monitorando."))
-        except Exception as e:
-            print(f"[ERRO] Falha ao iniciar oráculo: {e}")
+        # Executa análise imediata
+        executar_ciclo_analise()
         
         return jsonify({"status": "Radar iniciado com sucesso"})
     return jsonify({"status": "Radar já está ativo"})
@@ -267,13 +202,6 @@ def parar_radar():
     """Para o radar"""
     if sistema_estado["ativo"]:
         sistema_estado["ativo"] = False
-        
-        # Envia mensagem de encerramento
-        try:
-            asyncio.run(enviar_oraculo("🛑 SNE Radar encerrado. Sistema em standby."))
-        except Exception as e:
-            print(f"[ERRO] Falha ao enviar mensagem de encerramento: {e}")
-        
         return jsonify({"status": "Radar parado com sucesso"})
     return jsonify({"status": "Radar já estava parado"})
 
