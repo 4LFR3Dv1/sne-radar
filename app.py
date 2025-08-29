@@ -30,66 +30,42 @@ sistema_estado = {
     "debug": {
         "ultimo_erro": None,
         "status_api": None,
-        "modo": "simulado"
+        "modo": "real"
     }
 }
 
-def gerar_dados_simulados():
-    """Gera dados simulados do Bitcoin quando a API não está disponível"""
-    try:
-        # Preço base do Bitcoin (simulado)
-        preco_base = 65000 + random.uniform(-2000, 2000)
-        
-        # Variação de preço
-        variacao = random.uniform(-500, 500)
-        preco_atual = preco_base + variacao
-        
-        # Dados simulados
-        dados = {
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            "open": preco_base,
-            "high": max(preco_base, preco_atual) + random.uniform(0, 200),
-            "low": min(preco_base, preco_atual) - random.uniform(0, 200),
-            "close": preco_atual,
-            "volume": random.uniform(1000, 5000),
-            "trades": random.randint(100, 1000)
-        }
-        
-        print(f"[DEBUG] Dados simulados gerados: {dados}")
-        sistema_estado["debug"]["status_api"] = "SIMULADO"
-        sistema_estado["debug"]["modo"] = "simulado"
-        
-        return dados
-        
-    except Exception as e:
-        erro_msg = f"Erro ao gerar dados simulados: {str(e)}"
-        print(f"[ERRO] {erro_msg}")
-        sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        return None
-
-def buscar_dados_binance_simples(symbol, interval, limit):
-    """Busca dados da Binance API de forma simples"""
+def buscar_dados_binance_com_proxy(symbol, interval, limit):
+    """Busca dados da Binance API com headers para contornar restrições"""
     try:
         print(f"[DEBUG] Iniciando busca de dados para {symbol}")
+        
+        # Headers para simular um navegador real
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
+        }
+        
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": symbol, "interval": interval, "limit": limit}
         
         print(f"[DEBUG] URL: {url}")
         print(f"[DEBUG] Params: {params}")
         
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, headers=headers, timeout=15)
         print(f"[DEBUG] Status code: {response.status_code}")
         
         if response.status_code != 200:
             erro_msg = f"Erro HTTP {response.status_code}: {response.text}"
             print(f"[ERRO] {erro_msg}")
             sistema_estado["debug"]["ultimo_erro"] = erro_msg
-            
-            # Se for erro 451 (restrição geográfica), usar dados simulados
-            if response.status_code == 451:
-                print("[INFO] Usando dados simulados devido a restrição geográfica")
-                return gerar_dados_simulados()
-            
             return None
         
         data = response.json()
@@ -129,20 +105,155 @@ def buscar_dados_binance_simples(symbol, interval, limit):
         erro_msg = "Timeout na requisição para Binance"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        print("[INFO] Usando dados simulados devido a timeout")
-        return gerar_dados_simulados()
+        return None
     except requests.exceptions.RequestException as e:
         erro_msg = f"Erro de requisição: {str(e)}"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        print("[INFO] Usando dados simulados devido a erro de requisição")
-        return gerar_dados_simulados()
+        return None
     except Exception as e:
         erro_msg = f"Erro inesperado: {str(e)}"
         print(f"[ERRO] {erro_msg}")
         sistema_estado["debug"]["ultimo_erro"] = erro_msg
-        print("[INFO] Usando dados simulados devido a erro inesperado")
-        return gerar_dados_simulados()
+        return None
+
+def buscar_dados_coinbase(symbol, interval, limit):
+    """Busca dados da Coinbase API como alternativa"""
+    try:
+        print(f"[DEBUG] Tentando Coinbase API para {symbol}")
+        
+        # Converter símbolo para formato Coinbase
+        symbol_coinbase = symbol.replace("USDT", "-USD")
+        
+        url = f"https://api.pro.coinbase.com/products/{symbol_coinbase}/candles"
+        params = {
+            "granularity": 60,  # 1 minuto
+            "limit": limit
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"[DEBUG] Coinbase Status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        if not data:
+            return None
+            
+        # Pegar o último candle (formato: [timestamp, open, high, low, close, volume])
+        ultimo_candle = data[0]  # Coinbase retorna em ordem reversa
+        
+        timestamp = int(ultimo_candle[0])
+        dt = datetime.fromtimestamp(timestamp)
+        
+        dados = {
+            "timestamp": dt.strftime('%Y-%m-%d %H:%M:%S'),
+            "open": float(ultimo_candle[1]),
+            "high": float(ultimo_candle[2]),
+            "low": float(ultimo_candle[3]),
+            "close": float(ultimo_candle[4]),
+            "volume": float(ultimo_candle[5]),
+            "trades": 100  # Valor padrão para Coinbase
+        }
+        
+        print(f"[DEBUG] Dados Coinbase processados: {dados}")
+        sistema_estado["debug"]["status_api"] = "COINBASE"
+        sistema_estado["debug"]["modo"] = "real"
+        
+        return dados
+        
+    except Exception as e:
+        print(f"[ERRO] Falha na Coinbase API: {e}")
+        return None
+
+def buscar_dados_kraken(symbol, interval, limit):
+    """Busca dados da Kraken API como alternativa"""
+    try:
+        print(f"[DEBUG] Tentando Kraken API para {symbol}")
+        
+        # Converter símbolo para formato Kraken
+        symbol_kraken = symbol.replace("USDT", "USD")
+        
+        url = "https://api.kraken.com/0/public/OHLC"
+        params = {
+            "pair": symbol_kraken,
+            "interval": 1,  # 1 minuto
+            "count": limit
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"[DEBUG] Kraken Status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        if not data or 'result' not in data:
+            return None
+            
+        ohlc_data = data['result'][list(data['result'].keys())[0]]
+        if not ohlc_data:
+            return None
+            
+        # Pegar o último candle (formato: [time, open, high, low, close, vwap, volume, count])
+        ultimo_candle = ohlc_data[0]
+        
+        timestamp = int(ultimo_candle[0])
+        dt = datetime.fromtimestamp(timestamp)
+        
+        dados = {
+            "timestamp": dt.strftime('%Y-%m-%d %H:%M:%S'),
+            "open": float(ultimo_candle[1]),
+            "high": float(ultimo_candle[2]),
+            "low": float(ultimo_candle[3]),
+            "close": float(ultimo_candle[4]),
+            "volume": float(ultimo_candle[6]),
+            "trades": int(ultimo_candle[7])
+        }
+        
+        print(f"[DEBUG] Dados Kraken processados: {dados}")
+        sistema_estado["debug"]["status_api"] = "KRAKEN"
+        sistema_estado["debug"]["modo"] = "real"
+        
+        return dados
+        
+    except Exception as e:
+        print(f"[ERRO] Falha na Kraken API: {e}")
+        return None
+
+def buscar_dados_reais(symbol, interval, limit):
+    """Tenta múltiplas APIs para obter dados reais"""
+    
+    # Tentar Binance primeiro
+    dados = buscar_dados_binance_com_proxy(symbol, interval, limit)
+    if dados:
+        return dados
+    
+    # Tentar Coinbase
+    dados = buscar_dados_coinbase(symbol, interval, limit)
+    if dados:
+        return dados
+    
+    # Tentar Kraken
+    dados = buscar_dados_kraken(symbol, interval, limit)
+    if dados:
+        return dados
+    
+    # Se nenhuma API funcionar, retornar None
+    sistema_estado["debug"]["ultimo_erro"] = "Todas as APIs falharam"
+    sistema_estado["debug"]["status_api"] = "FALHA"
+    return None
 
 def calcular_indicadores_simples(dados):
     """Calcula indicadores básicos sem pandas"""
@@ -202,11 +313,12 @@ def executar_ciclo_analise():
     try:
         print(f"[INFO] Iniciando ciclo de análise - {datetime.now().strftime('%H:%M:%S')}")
         
-        # Busca dados
-        dados = buscar_dados_binance_simples(symbol, interval, limit)
+        # Busca dados reais
+        dados = buscar_dados_reais(symbol, interval, limit)
         
         if not dados:
-            print("[ERRO] Dados não disponíveis")
+            print("[ERRO] Nenhum dado real disponível")
+            sistema_estado["debug"]["modo"] = "erro"
             return
         
         # Calcula indicadores
